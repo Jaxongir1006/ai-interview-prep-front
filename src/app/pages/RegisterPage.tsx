@@ -7,9 +7,12 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Card } from "../components/ui/card";
 import { Checkbox } from "../components/ui/checkbox";
+import { registerUser } from "../lib/api";
 
 export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -18,10 +21,29 @@ export default function RegisterPage() {
   });
   const navigate = useNavigate();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Mock registration - in production, this would call your API
-    navigate("/onboarding");
+
+    setErrorMessage("");
+    setIsSubmitting(true);
+
+    try {
+      await registerUser({
+        email: formData.email.trim(),
+        password: formData.password,
+        full_name: formData.name.trim(),
+      });
+
+      navigate(`/verify-email?email=${encodeURIComponent(formData.email.trim())}`);
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to create your account right now.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -145,14 +167,18 @@ export default function RegisterPage() {
               </label>
             </div>
 
+            {errorMessage ? (
+              <p className="text-sm text-destructive">{errorMessage}</p>
+            ) : null}
+
             {/* Submit Button */}
             <Button
               type="submit"
               className="w-full"
               size="lg"
-              disabled={!formData.agreeToTerms}
+              disabled={!formData.agreeToTerms || isSubmitting}
             >
-              Create Account
+              {isSubmitting ? "Creating Account..." : "Create Account"}
             </Button>
           </form>
 
