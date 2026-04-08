@@ -1,0 +1,8 @@
+interface:
+  display_name: "AI Interview Prep Frontend"
+  short_description: "Work safely in this Vite React frontend"
+  brand_color: "#2563EB"
+  default_prompt: "Use $ai-interview-prep-frontend to diagnose, modify, or extend this frontend while preserving its architecture and startup constraints."
+
+policy:
+  allow_implicit_invocation: true
