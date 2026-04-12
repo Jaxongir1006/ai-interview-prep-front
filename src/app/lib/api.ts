@@ -3,6 +3,7 @@ import { clearSession, type LoginResponse, saveSession } from "./auth";
 const API_URL = import.meta.env.VITE_API_URL?.replace(/\/$/, "");
 
 type ApiErrorPayload = {
+  code?: string;
   message?: string;
   error?: string;
   details?: string;
@@ -58,6 +59,20 @@ export type LoginRequest = {
   password: string;
 };
 
+export type VerifyEmailRequest = {
+  token: string;
+};
+
+export type VerifyEmailResponse = {
+  user_id: string;
+  email: string;
+  is_verified: true;
+};
+
+export type ResendVerificationEmailRequest = {
+  email: string;
+};
+
 async function request<TResponse>(
   path: string,
   init: RequestInit,
@@ -82,6 +97,7 @@ async function request<TResponse>(
       (data as ApiErrorPayload | null)?.message ||
       (data as ApiErrorPayload | null)?.error ||
       (data as ApiErrorPayload | null)?.details ||
+      (data as ApiErrorPayload | null)?.code ||
       `Request failed with status ${response.status}`;
 
     throw new Error(errorMessage);
@@ -107,4 +123,20 @@ export async function loginUser(payload: LoginRequest) {
   saveSession(session);
 
   return session;
+}
+
+export async function verifyEmail(payload: VerifyEmailRequest) {
+  return request<VerifyEmailResponse>("/api/v1/auth/verify-email", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function resendVerificationEmail(
+  payload: ResendVerificationEmailRequest,
+) {
+  await request<unknown>("/api/v1/auth/resend-verification-email", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
