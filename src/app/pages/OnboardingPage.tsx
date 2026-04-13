@@ -12,24 +12,47 @@ import {
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { Progress } from "../components/ui/progress";
+import { hasValidAccessToken } from "../lib/auth";
+import { ApiError, completeOnboarding } from "../lib/api";
+import type { CompleteOnboardingRequest } from "../lib/api";
+import {
+  clearPendingOnboarding,
+  getPendingOnboarding,
+  savePendingOnboarding,
+} from "../lib/onboarding";
+
+type TargetRole = CompleteOnboardingRequest["target_role"];
+type ExperienceLevel = CompleteOnboardingRequest["experience_level"];
+type PreferredTopic = CompleteOnboardingRequest["preferred_topics"][number];
 
 export default function OnboardingPage() {
+  const pendingOnboarding = getPendingOnboarding();
   const [step, setStep] = useState(1);
-  const [selectedRole, setSelectedRole] = useState("");
-  const [selectedLevel, setSelectedLevel] = useState("");
-  const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
+  const [selectedRole, setSelectedRole] = useState<TargetRole | "">(
+    pendingOnboarding?.target_role || "",
+  );
+  const [selectedLevel, setSelectedLevel] = useState<ExperienceLevel | "">(
+    pendingOnboarding?.experience_level || "",
+  );
+  const [selectedTopics, setSelectedTopics] = useState<PreferredTopic[]>(
+    pendingOnboarding?.preferred_topics || [],
+  );
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
   const navigate = useNavigate();
 
-  const roles = [
+  const roles: Array<{ id: TargetRole; label: string; icon: string }> = [
     { id: "python", label: "Python Backend", icon: "🐍" },
-    { id: "django", label: "Django Developer", icon: "🎸" },
     { id: "golang", label: "Go Developer", icon: "🔷" },
-    { id: "nodejs", label: "Node.js Backend", icon: "🟢" },
-    { id: "java", label: "Java Backend", icon: "☕" },
-    { id: "fullstack", label: "Full Stack", icon: "🚀" },
+    { id: "javascript", label: "JavaScript Backend", icon: "🟢" },
   ];
 
-  const levels = [
+  const levels: Array<{
+    id: ExperienceLevel;
+    label: string;
+    description: string;
+    icon: string;
+  }> = [
     {
       id: "junior",
       label: "Junior",
@@ -50,30 +73,75 @@ export default function OnboardingPage() {
     },
   ];
 
-  const topics = [
-    "Data Structures",
+  const topics: PreferredTopic[] = [
     "Algorithms",
     "System Design",
     "Database Design",
-    "API Design",
-    "Security",
-    "Testing",
-    "Cloud Services",
-    "Microservices",
-    "Performance Optimization",
-    "CI/CD",
-    "DevOps",
   ];
 
   const totalSteps = 3;
   const progress = (step / totalSteps) * 100;
 
-  const handleNext = () => {
+  const getPreferences = (): CompleteOnboardingRequest | null => {
+    if (!selectedRole || !selectedLevel || selectedTopics.length === 0) {
+      return null;
+    }
+
+    return {
+      target_role: selectedRole,
+      experience_level: selectedLevel,
+      preferred_topics: selectedTopics,
+    };
+  };
+
+  const handleNext = async () => {
+    setErrorMessage("");
+
     if (step < totalSteps) {
       setStep(step + 1);
-    } else {
-      // Complete onboarding
+      return;
+    }
+
+    const preferences = getPreferences();
+
+    if (!preferences) {
+      setErrorMessage("Complete all onboarding steps before continuing.");
+      return;
+    }
+
+    if (!hasValidAccessToken()) {
+      savePendingOnboarding(preferences);
+      navigate("/login", {
+        state: {
+          from: { pathname: "/onboarding" },
+          message: "Sign in to save your interview preferences.",
+        },
+      });
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      await completeOnboarding(preferences);
+      clearPendingOnboarding();
       navigate("/app");
+    } catch (error) {
+      const code = error instanceof ApiError ? error.code : undefined;
+
+      if (code === "EMAIL_NOT_VERIFIED") {
+        setErrorMessage("Verify your email before completing onboarding.");
+      } else if (code === "VALIDATION_FAILED") {
+        setErrorMessage("Choose a supported role, level, and topic list.");
+      } else {
+        setErrorMessage(
+          error instanceof Error
+            ? error.message
+            : "Unable to save your onboarding preferences.",
+        );
+      }
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -83,7 +151,7 @@ export default function OnboardingPage() {
     }
   };
 
-  const toggleTopic = (topic: string) => {
+  const toggleTopic = (topic: PreferredTopic) => {
     if (selectedTopics.includes(topic)) {
       setSelectedTopics(selectedTopics.filter((t) => t !== topic));
     } else {
@@ -294,12 +362,20 @@ export default function OnboardingPage() {
             Back
           </Button>
 
+          {errorMessage ? (
+            <p className="text-sm text-destructive">{errorMessage}</p>
+          ) : null}
+
           <Button
             onClick={handleNext}
-            disabled={!canProceed()}
+            disabled={!canProceed() || isSubmitting}
             size="lg"
           >
-            {step === totalSteps ? "Get Started" : "Continue"}
+            {isSubmitting
+              ? "Saving..."
+              : step === totalSteps
+                ? "Get Started"
+                : "Continue"}
             <ArrowRight className="w-5 h-5 ml-2" />
           </Button>
         </div>

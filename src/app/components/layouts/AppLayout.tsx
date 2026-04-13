@@ -1,4 +1,4 @@
-import { Outlet, Link, useLocation } from "react-router";
+import { Outlet, Link, useLocation, useNavigate } from "react-router";
 import {
   LayoutDashboard,
   BarChart3,
@@ -9,9 +9,11 @@ import {
   Brain,
 } from "lucide-react";
 import { motion } from "motion/react";
+import { clearSession } from "../../lib/auth";
 
 export default function AppLayout() {
   const location = useLocation();
+  const navigate = useNavigate();
 
   const navItems = [
     { path: "/app", icon: LayoutDashboard, label: "Dashboard" },
@@ -25,6 +27,11 @@ export default function AppLayout() {
       return location.pathname === "/app";
     }
     return location.pathname.startsWith(path);
+  };
+
+  const handleLogout = () => {
+    clearSession();
+    navigate("/login", { replace: true });
   };
 
   return (
@@ -81,7 +88,11 @@ export default function AppLayout() {
               </p>
             </div>
           </div>
-          <button className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-all mt-2">
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-all mt-2"
+          >
             <LogOut className="w-5 h-5" />
             <span className="font-medium">Logout</span>
           </button>

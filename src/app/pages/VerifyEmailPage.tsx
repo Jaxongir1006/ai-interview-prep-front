@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { motion } from "motion/react";
 import {
   AlertCircle,
@@ -16,12 +16,12 @@ import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
-import { resendVerificationEmail, verifyEmail } from "../lib/api";
+import { ApiError, resendVerificationEmail, verifyEmail } from "../lib/api";
 
 type VerificationStatus = "idle" | "verifying" | "verified" | "failed";
 
-function getVerificationErrorMessage(message: string) {
-  switch (message) {
+function getVerificationErrorMessage(code: string | undefined, error: unknown) {
+  switch (code) {
     case "EMAIL_VERIFICATION_TOKEN_INVALID":
       return "This verification link is invalid or has already been used.";
     case "EMAIL_VERIFICATION_TOKEN_EXPIRED":
@@ -29,14 +29,17 @@ function getVerificationErrorMessage(message: string) {
     case "EMAIL_VERIFICATION_EMAIL_MISMATCH":
       return "This verification link no longer matches your account email.";
     default:
-      return message || "Unable to verify your email right now.";
+      return error instanceof Error
+        ? error.message
+        : "Unable to verify your email right now.";
   }
 }
 
 export default function VerifyEmailPage() {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const token = searchParams.get("token")?.trim() || "";
-  const emailFromUrl = searchParams.get("email")?.trim() || "";
+  const emailFromUrl = searchParams.get("email")?.trim().toLowerCase() || "";
   const hasAttemptedVerification = useRef(false);
 
   const [email, setEmail] = useState(emailFromUrl);
@@ -64,21 +67,30 @@ export default function VerifyEmailPage() {
         setVerifiedEmail(result.email);
         setEmail(result.email);
         setStatus("verified");
+        navigate(result.onboarding_required ? "/onboarding" : "/app", {
+          replace: true,
+        });
       })
       .catch((error) => {
-        setErrorMessage(
-          getVerificationErrorMessage(
-            error instanceof Error ? error.message : "",
-          ),
-        );
+        const code = error instanceof ApiError ? error.code : undefined;
+        setErrorMessage(getVerificationErrorMessage(code, error));
         setStatus("failed");
+
+        if (code?.startsWith("EMAIL_VERIFICATION_")) {
+          navigate(
+            emailFromUrl
+              ? `/verify-email?email=${encodeURIComponent(emailFromUrl)}`
+              : "/verify-email",
+            { replace: true },
+          );
+        }
       });
-  }, [token]);
+  }, [emailFromUrl, navigate, token]);
 
   const handleResend = async (event: React.FormEvent) => {
     event.preventDefault();
 
-    const normalizedEmail = email.trim();
+    const normalizedEmail = email.trim().toLowerCase();
 
     if (!normalizedEmail) {
       setResendStatus("failed");
@@ -212,6 +224,7 @@ export default function VerifyEmailPage() {
                       value={email}
                       onChange={(event) => setEmail(event.target.value)}
                       className="pl-10"
+                      maxLength={255}
                       required
                     />
                   </div>
@@ -247,8 +260,26 @@ export default function VerifyEmailPage() {
           ) : null}
 
           <div className="space-y-3">
+            {isVerified ? (
+              <Link
+                to="/onboarding"
+                state={{
+                  message: "Choose your interview focus before signing in.",
+                }}
+                className="block"
+              >
+                <Button className="w-full" size="lg">
+                  Personalize Interview Prep
+                </Button>
+              </Link>
+            ) : null}
             <Link to="/login" className="block">
-              <Button className="w-full" size="lg" disabled={isVerifying}>
+              <Button
+                className="w-full"
+                size="lg"
+                disabled={isVerifying}
+                variant={isVerified ? "outline" : "default"}
+              >
                 Back to Login
               </Button>
             </Link>

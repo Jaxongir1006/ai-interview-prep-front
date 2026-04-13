@@ -1,4 +1,9 @@
-import { clearSession, type LoginResponse, saveSession } from "./auth";
+import {
+  clearSession,
+  getAccessToken,
+  type LoginResponse,
+  saveSession,
+} from "./auth";
 
 const API_URL = import.meta.env.VITE_API_URL?.replace(/\/$/, "");
 
@@ -8,6 +13,18 @@ type ApiErrorPayload = {
   error?: string;
   details?: string;
 };
+
+export class ApiError extends Error {
+  code?: string;
+  status: number;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+  }
+}
 
 function parseJson<T>(text: string): T | null {
   if (!text) {
@@ -28,35 +45,25 @@ export type RegisterRequest = {
 };
 
 export type RegisterResponse = {
-  user: {
-    id: string;
-    email: string;
-    phone_number: string | null;
-    is_verified: boolean;
-    is_active: boolean;
-    last_login_at: string | null;
-    last_active_at: string | null;
-    created_at: string;
-    updated_at: string;
-  };
-  profile: {
-    id: number;
-    user_id: string;
-    full_name: string;
-    bio: string | null;
-    location: string | null;
-    target_role: string | null;
-    experience_level: string | null;
-    interview_goal_per_week: number;
-    preferred_topics: string[];
-    created_at: string;
-    updated_at: string;
-  };
+  email: string;
+  verification_required: true;
 };
 
 export type LoginRequest = {
   email: string;
   password: string;
+};
+
+export type OAuthLoginResponse = LoginResponse & {
+  is_new_user: boolean;
+};
+
+export type GithubOAuthLoginRequest = {
+  code: string;
+};
+
+export type GoogleOAuthLoginRequest = {
+  id_token: string;
 };
 
 export type VerifyEmailRequest = {
@@ -67,6 +74,26 @@ export type VerifyEmailResponse = {
   user_id: string;
   email: string;
   is_verified: true;
+  onboarding_required: boolean;
+} & LoginResponse;
+
+export type CompleteOnboardingRequest = {
+  target_role: "python" | "golang" | "javascript";
+  experience_level: "junior" | "mid" | "senior";
+  preferred_topics: Array<"Algorithms" | "System Design" | "Database Design">;
+};
+
+export type CompleteOnboardingResponse = {
+  profile: {
+    id: number;
+    user_id: string;
+    full_name: string;
+    target_role: string;
+    experience_level: string;
+    preferred_topics: string[];
+    onboarding_completed: true;
+    onboarding_completed_at: string;
+  };
 };
 
 export type ResendVerificationEmailRequest = {
@@ -93,17 +120,37 @@ async function request<TResponse>(
   const data = parseJson<TResponse | ApiErrorPayload>(text);
 
   if (!response.ok) {
+    const code = (data as ApiErrorPayload | null)?.code;
     const errorMessage =
       (data as ApiErrorPayload | null)?.message ||
       (data as ApiErrorPayload | null)?.error ||
       (data as ApiErrorPayload | null)?.details ||
-      (data as ApiErrorPayload | null)?.code ||
+      code ||
       `Request failed with status ${response.status}`;
 
-    throw new Error(errorMessage);
+    throw new ApiError(errorMessage, response.status, code);
   }
 
   return data as TResponse;
+}
+
+async function authenticatedRequest<TResponse>(
+  path: string,
+  init: RequestInit,
+): Promise<TResponse> {
+  const accessToken = getAccessToken();
+
+  if (!accessToken) {
+    throw new Error("Missing authenticated session.");
+  }
+
+  return request<TResponse>(path, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      ...(init.headers ?? {}),
+    },
+  });
 }
 
 export async function registerUser(payload: RegisterRequest) {
@@ -125,11 +172,46 @@ export async function loginUser(payload: LoginRequest) {
   return session;
 }
 
+export async function loginWithGithubOAuth(payload: GithubOAuthLoginRequest) {
+  const session = await request<OAuthLoginResponse>(
+    "/api/v1/auth/github-oauth-login",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+  );
+
+  clearSession();
+  saveSession(session);
+
+  return session;
+}
+
+export async function loginWithGoogleOAuth(payload: GoogleOAuthLoginRequest) {
+  const session = await request<OAuthLoginResponse>(
+    "/api/v1/auth/google-oauth-login",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+  );
+
+  clearSession();
+  saveSession(session);
+
+  return session;
+}
+
 export async function verifyEmail(payload: VerifyEmailRequest) {
-  return request<VerifyEmailResponse>("/api/v1/auth/verify-email", {
+  const session = await request<VerifyEmailResponse>("/api/v1/auth/verify-email", {
     method: "POST",
     body: JSON.stringify(payload),
   });
+
+  clearSession();
+  saveSession(session);
+
+  return session;
 }
 
 export async function resendVerificationEmail(
@@ -139,4 +221,14 @@ export async function resendVerificationEmail(
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export async function completeOnboarding(payload: CompleteOnboardingRequest) {
+  return authenticatedRequest<CompleteOnboardingResponse>(
+    "/api/v1/me/complete-onboarding",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+  );
 }

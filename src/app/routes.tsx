@@ -11,7 +11,9 @@ import ResultsPage from "./pages/ResultsPage";
 import AnalyticsPage from "./pages/AnalyticsPage";
 import ProfilePage from "./pages/ProfilePage";
 import SettingsPage from "./pages/SettingsPage";
+import OAuthCallbackPage from "./pages/OAuthCallbackPage";
 import AppLayout from "./components/layouts/AppLayout";
+import ProtectedRoute from "./components/ProtectedRoute";
 
 export const router = createBrowserRouter([
   {
@@ -39,8 +41,16 @@ export const router = createBrowserRouter([
     element: <OnboardingPage />,
   },
   {
+    path: "/oauth/:provider/callback",
+    element: <OAuthCallbackPage />,
+  },
+  {
     path: "/app",
-    element: <AppLayout />,
+    element: (
+      <ProtectedRoute>
+        <AppLayout />
+      </ProtectedRoute>
+    ),
     children: [
       {
         index: true,

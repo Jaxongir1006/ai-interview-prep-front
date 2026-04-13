@@ -29,3 +29,24 @@ export function clearSession() {
   localStorage.removeItem(REFRESH_TOKEN_KEY);
   localStorage.removeItem(REFRESH_TOKEN_EXPIRES_AT_KEY);
 }
+
+export function getAccessToken() {
+  return localStorage.getItem(ACCESS_TOKEN_KEY);
+}
+
+export function hasValidAccessToken() {
+  const accessToken = getAccessToken();
+  const expiresAt = localStorage.getItem(ACCESS_TOKEN_EXPIRES_AT_KEY);
+
+  if (!accessToken || !expiresAt) {
+    return false;
+  }
+
+  const expiresAtMs = Date.parse(expiresAt);
+
+  if (Number.isNaN(expiresAtMs)) {
+    return false;
+  }
+
+  return expiresAtMs > Date.now();
+}

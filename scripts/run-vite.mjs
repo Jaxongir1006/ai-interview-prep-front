@@ -13,7 +13,13 @@ const bundledEsbuild = resolve(
 const patchedEsbuild = resolve(projectRoot, ".cache/esbuild/bin/esbuild");
 
 mkdirSync(dirname(patchedEsbuild), { recursive: true });
-copyFileSync(bundledEsbuild, patchedEsbuild);
+try {
+  copyFileSync(bundledEsbuild, patchedEsbuild);
+} catch (error) {
+  if (!existsSync(patchedEsbuild) || error?.code !== "ETXTBSY") {
+    throw error;
+  }
+}
 chmodSync(patchedEsbuild, 0o755);
 
 const result = spawnSync(
