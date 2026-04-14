@@ -1,28 +1,52 @@
 import {
   clearSession,
   getAccessToken,
+  getRefreshToken,
+  hasValidAccessToken,
+  hasValidRefreshToken,
   type LoginResponse,
   saveSession,
 } from "./auth";
+import { notifyApiError, notifyAuthExpired } from "./api-events";
 
 const API_URL = import.meta.env.VITE_API_URL?.replace(/\/$/, "");
+let refreshSessionPromise: Promise<string> | null = null;
 
 type ApiErrorPayload = {
+  trace_id?: string;
   code?: string;
   message?: string;
-  error?: string;
+  error?:
+    | string
+    | {
+        code?: string;
+        message?: string;
+        cause?: string;
+        fields?: Record<string, string>;
+        details?: Record<string, unknown>;
+      };
+  fields?: Record<string, string>;
   details?: string;
 };
 
 export class ApiError extends Error {
   code?: string;
+  fields?: Record<string, string>;
   status: number;
+  traceId?: string;
 
-  constructor(message: string, status: number, code?: string) {
+  constructor(
+    message: string,
+    status: number,
+    code?: string,
+    options: { fields?: Record<string, string>; traceId?: string } = {},
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
+    this.fields = options.fields;
+    this.traceId = options.traceId;
   }
 }
 
@@ -100,71 +124,236 @@ export type ResendVerificationEmailRequest = {
   email: string;
 };
 
+type RefreshTokenRequest = {
+  refresh_token: string;
+};
+
+function isAuthError(error: unknown) {
+  if (!(error instanceof ApiError)) {
+    return false;
+  }
+
+  return error.status === 401 || error.code === "UNAUTHORIZED";
+}
+
+function shouldNotifyGlobalError(error: unknown) {
+  if (!(error instanceof ApiError)) {
+    return true;
+  }
+
+  if (error.status === 403 || error.status >= 500) {
+    return true;
+  }
+
+  return false;
+}
+
+function getErrorObject(payload: ApiErrorPayload | null) {
+  if (!payload || !payload.error || typeof payload.error === "string") {
+    return null;
+  }
+
+  return payload.error;
+}
+
+function extractApiError(
+  payload: ApiErrorPayload | null,
+  status: number,
+) {
+  const errorObject = getErrorObject(payload);
+  const code = errorObject?.code || payload?.code;
+  const message =
+    errorObject?.message ||
+    payload?.message ||
+    (typeof payload?.error === "string" ? payload.error : undefined) ||
+    code ||
+    `Request failed with status ${status}`;
+  const fields = errorObject?.fields || payload?.fields;
+
+  return {
+    code,
+    message,
+    fields,
+    traceId: payload?.trace_id,
+  };
+}
+
+function getGlobalErrorMessage(error: ApiError) {
+  if (error.status === 403) {
+    return "You do not have permission to perform this action.";
+  }
+
+  if (error.status >= 500) {
+    return "Something went wrong on the server. Try again later.";
+  }
+
+  return error.message;
+}
+
 async function request<TResponse>(
   path: string,
   init: RequestInit,
+  options: { suppressGlobalError?: boolean } = {},
 ): Promise<TResponse> {
   if (!API_URL) {
     throw new Error("Missing VITE_API_URL configuration.");
   }
 
-  const response = await fetch(`${API_URL}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init.headers ?? {}),
-    },
-  });
+  let response: Response;
+
+  try {
+    response = await fetch(`${API_URL}${path}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...(init.headers ?? {}),
+      },
+    });
+  } catch (error) {
+    if (!options.suppressGlobalError) {
+      notifyApiError({
+        code: "NETWORK_ERROR",
+        message: "Unable to reach the server. Check your connection and try again.",
+      });
+    }
+
+    throw error;
+  }
 
   const text = await response.text();
   const data = parseJson<TResponse | ApiErrorPayload>(text);
 
   if (!response.ok) {
-    const code = (data as ApiErrorPayload | null)?.code;
-    const errorMessage =
-      (data as ApiErrorPayload | null)?.message ||
-      (data as ApiErrorPayload | null)?.error ||
-      (data as ApiErrorPayload | null)?.details ||
-      code ||
-      `Request failed with status ${response.status}`;
+    const errorData = extractApiError(data as ApiErrorPayload | null, response.status);
+    const apiError = new ApiError(errorData.message, response.status, errorData.code, {
+      fields: errorData.fields,
+      traceId: errorData.traceId,
+    });
 
-    throw new ApiError(errorMessage, response.status, code);
+    if (!options.suppressGlobalError && shouldNotifyGlobalError(apiError)) {
+      notifyApiError({
+        code: apiError.code || "API_ERROR",
+        message: getGlobalErrorMessage(apiError),
+        status: apiError.status,
+      });
+    }
+
+    throw apiError;
   }
 
   return data as TResponse;
+}
+
+async function runRefreshSession() {
+  const refreshToken = getRefreshToken();
+
+  if (!refreshToken || !hasValidRefreshToken()) {
+    clearSession();
+    notifyAuthExpired();
+    throw new ApiError(
+      "Your session has expired. Sign in again.",
+      401,
+      "UNAUTHORIZED",
+    );
+  }
+
+  try {
+    const session = await request<LoginResponse>(
+      "/api/v1/auth/refresh-token",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          refresh_token: refreshToken,
+        } satisfies RefreshTokenRequest),
+      },
+      { suppressGlobalError: true },
+    );
+
+    saveSession(session);
+
+    return session.access_token;
+  } catch (error) {
+    if (isAuthError(error)) {
+      clearSession();
+      notifyAuthExpired();
+    }
+
+    throw error;
+  }
+}
+
+async function refreshSession() {
+  refreshSessionPromise ??= runRefreshSession().finally(() => {
+    refreshSessionPromise = null;
+  });
+
+  return refreshSessionPromise;
 }
 
 async function authenticatedRequest<TResponse>(
   path: string,
   init: RequestInit,
 ): Promise<TResponse> {
-  const accessToken = getAccessToken();
+  let accessToken = getAccessToken();
 
-  if (!accessToken) {
-    throw new Error("Missing authenticated session.");
+  if (!accessToken || !hasValidAccessToken()) {
+    accessToken = await refreshSession();
   }
 
-  return request<TResponse>(path, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      ...(init.headers ?? {}),
-    },
-  });
+  try {
+    return await request<TResponse>(path, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        ...(init.headers ?? {}),
+      },
+    });
+  } catch (error) {
+    if (!isAuthError(error)) {
+      throw error;
+    }
+
+    const refreshedAccessToken = await refreshSession();
+
+    try {
+      return await request<TResponse>(path, {
+        ...init,
+        headers: {
+          Authorization: `Bearer ${refreshedAccessToken}`,
+          ...(init.headers ?? {}),
+        },
+      });
+    } catch (retryError) {
+      if (isAuthError(retryError)) {
+        clearSession();
+        notifyAuthExpired();
+      }
+
+      throw retryError;
+    }
+  }
 }
 
 export async function registerUser(payload: RegisterRequest) {
-  return request<RegisterResponse>("/api/v1/auth/register", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+  return request<RegisterResponse>(
+    "/api/v1/auth/register",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    { suppressGlobalError: true },
+  );
 }
 
 export async function loginUser(payload: LoginRequest) {
-  const session = await request<LoginResponse>("/api/v1/auth/login", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+  const session = await request<LoginResponse>(
+    "/api/v1/auth/login",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    { suppressGlobalError: true },
+  );
 
   clearSession();
   saveSession(session);
@@ -179,6 +368,7 @@ export async function loginWithGithubOAuth(payload: GithubOAuthLoginRequest) {
       method: "POST",
       body: JSON.stringify(payload),
     },
+    { suppressGlobalError: true },
   );
 
   clearSession();
@@ -194,6 +384,7 @@ export async function loginWithGoogleOAuth(payload: GoogleOAuthLoginRequest) {
       method: "POST",
       body: JSON.stringify(payload),
     },
+    { suppressGlobalError: true },
   );
 
   clearSession();
@@ -203,10 +394,14 @@ export async function loginWithGoogleOAuth(payload: GoogleOAuthLoginRequest) {
 }
 
 export async function verifyEmail(payload: VerifyEmailRequest) {
-  const session = await request<VerifyEmailResponse>("/api/v1/auth/verify-email", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+  const session = await request<VerifyEmailResponse>(
+    "/api/v1/auth/verify-email",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    { suppressGlobalError: true },
+  );
 
   clearSession();
   saveSession(session);
@@ -217,10 +412,14 @@ export async function verifyEmail(payload: VerifyEmailRequest) {
 export async function resendVerificationEmail(
   payload: ResendVerificationEmailRequest,
 ) {
-  await request<unknown>("/api/v1/auth/resend-verification-email", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+  await request<unknown>(
+    "/api/v1/auth/resend-verification-email",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    { suppressGlobalError: true },
+  );
 }
 
 export async function completeOnboarding(payload: CompleteOnboardingRequest) {

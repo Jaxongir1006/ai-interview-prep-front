@@ -12,7 +12,7 @@ import {
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { Progress } from "../components/ui/progress";
-import { hasValidAccessToken } from "../lib/auth";
+import { hasSession } from "../lib/auth";
 import { ApiError, completeOnboarding } from "../lib/api";
 import type { CompleteOnboardingRequest } from "../lib/api";
 import {
@@ -109,7 +109,7 @@ export default function OnboardingPage() {
       return;
     }
 
-    if (!hasValidAccessToken()) {
+    if (!hasSession()) {
       savePendingOnboarding(preferences);
       navigate("/login", {
         state: {

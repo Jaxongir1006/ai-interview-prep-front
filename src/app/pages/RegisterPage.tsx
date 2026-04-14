@@ -183,7 +183,8 @@ export default function RegisterPage() {
             {errorMessage ? (
               <div className="space-y-2">
                 <p className="text-sm text-destructive">{errorMessage}</p>
-                {errorCode === "EMAIL_ALREADY_EXISTS" ? (
+                {errorCode === "EMAIL_ALREADY_EXISTS" ||
+                errorCode === "EMAIL_CONFLICT" ? (
                   <Link
                     to={`/verify-email?email=${encodeURIComponent(
                       formData.email.trim().toLowerCase(),
@@ -254,8 +255,11 @@ export default function RegisterPage() {
 
 function getRegisterErrorMessage(code: string | undefined, error: unknown) {
   switch (code) {
+    case "EMAIL_CONFLICT":
     case "EMAIL_ALREADY_EXISTS":
       return "An account already exists for this email. If you have not verified it yet, request a fresh verification email.";
+    case "VALIDATION_FAILED":
+      return "Check your name, email, and password, then try again.";
     default:
       return error instanceof Error
         ? error.message

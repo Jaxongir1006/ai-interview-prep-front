@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "node ./scripts/run-vite.mjs build",
-    "dev": "node ./scripts/run-vite.mjs"
+    "dev": "node ./scripts/run-vite.mjs",
+    "sync:backend-docs": "node ./scripts/sync-backend-docs.mjs"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",

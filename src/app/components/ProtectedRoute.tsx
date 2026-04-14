@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Navigate, useLocation } from "react-router";
-import { hasValidAccessToken } from "../lib/auth";
+import { hasSession } from "../lib/auth";
 
 type ProtectedRouteProps = {
   children: ReactNode;
@@ -9,7 +9,7 @@ type ProtectedRouteProps = {
 export default function ProtectedRoute({ children }: ProtectedRouteProps) {
   const location = useLocation();
 
-  if (!hasValidAccessToken()) {
+  if (!hasSession()) {
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
 

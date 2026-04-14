@@ -229,8 +229,14 @@ export default function LoginPage() {
 
 function getLoginErrorMessage(code: string | undefined, error: unknown) {
   switch (code) {
+    case "INCORRECT_CREDENTIALS":
+    case "INVALID_CREDENTIALS":
+    case "INVALID_LOGIN_CREDENTIALS":
+      return "Invalid email or password.";
     case "EMAIL_NOT_VERIFIED":
       return "Verify your email before signing in. You can request a fresh verification link.";
+    case "VALIDATION_FAILED":
+      return "Check your email and password, then try again.";
     default:
       return error instanceof Error ? error.message : "Unable to sign in right now.";
   }

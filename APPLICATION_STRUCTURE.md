@@ -1,161 +1,153 @@
-# AI Interview Preparation Platform - Application Structure
+# AI Interview Preparation Platform
 
-## Overview
-A modern, premium-quality SaaS web application designed for software developers preparing for technical interviews. Built with React, TypeScript, Tailwind CSS, and featuring comprehensive dark/light mode support.
+This document describes the frontend structure, current implementation status, and the backend APIs needed to make the product fully data-driven.
 
-## Pages & Routes
+## Product Summary
 
-### Public Pages
-- `/` - Landing Page
-  - Hero section with product value proposition
-  - Feature highlights
-  - Benefits showcase
-  - Call-to-action sections
+InterviewAI is a SaaS-style interview preparation app for software developers. The frontend is built with React, TypeScript, Vite, Tailwind CSS, Radix/shadcn-style UI primitives, Motion, Recharts, and `next-themes`.
 
-- `/login` - Login Page
-  - Email/password authentication
-  - Social login options (Google, GitHub)
-  - Password reset link
+The app currently has a polished UI shell, real authentication/onboarding API integration, and mock data for the core interview, dashboard, analytics, profile, and results experiences.
 
-- `/register` - Registration Page
-  - User account creation
-  - Terms acceptance
-  - Social registration options
+## Route Map
 
-- `/password-reset` - Password Reset
-  - Email-based password recovery
-  - Success confirmation
+### Public Routes
 
-- `/onboarding` - Onboarding Flow
-  - Step 1: Target role selection
-  - Step 2: Experience level
-  - Step 3: Topic preferences
-  - Progress indicator
+| Route | Page | Purpose | Backend status |
+| --- | --- | --- | --- |
+| `/` | Landing page | Marketing and primary CTA | Static |
+| `/login` | Login page | Email/password and social sign-in | Integrated |
+| `/register` | Register page | Account creation | Integrated |
+| `/verify-email` | Verify email page | Email verification and resend flow | Integrated |
+| `/password-reset` | Password reset page | Password recovery UI | UI present, backend TBD |
+| `/onboarding` | Onboarding flow | Target role, level, and topic preferences | Integrated |
+| `/oauth/:provider/callback` | OAuth callback | GitHub/Google login callback | Integrated |
 
-### Application Pages (Protected)
-All application pages are under `/app` route with shared layout (sidebar + top navigation):
+### Protected App Routes
 
-- `/app` - Dashboard
-  - Quick stats cards (interviews, scores, streak)
-  - Performance chart
-  - Weak/strong topics analysis
-  - Recent activity
-  - Start interview CTA
+All authenticated routes live under `/app` and render inside the shared sidebar/topbar layout.
 
-- `/app/interview` - Interview Session
-  - Question-by-question interface
-  - Timer and progress tracking
-  - Answer input (text/code mode)
-  - Question navigation
-  - Hints and difficulty indicators
+| Route | Page | Purpose | Backend status |
+| --- | --- | --- | --- |
+| `/app` | Dashboard | Summary stats, charts, topic insights, recent activity, CTA | Mock data |
+| `/app/interview` | Interview session | Question flow, timer, answers, code/text mode | Mock data |
+| `/app/results/:sessionId` | Results | Score report, topic breakdown, feedback, recommendations | Mock data |
+| `/app/analytics` | Analytics | Historical performance and filters | Mock data |
+| `/app/profile` | Profile | User details, proficiency, achievements, preferences | Mock data |
+| `/app/settings` | Settings | Account, theme, notifications, security | Mostly local/mock |
 
-- `/app/results/:sessionId` - Results Page
-  - Overall score visualization
-  - Performance radar chart
-  - Topic-by-topic breakdown
-  - Strengths and weaknesses
-  - Missing concepts identification
-  - Detailed feedback per question
-  - Recommendations
+## Frontend Architecture
 
-- `/app/analytics` - Analytics Dashboard
-  - Filters (time range, topic)
-  - Performance over time charts
-  - Topic performance breakdown
-  - Difficulty distribution
-  - Time investment tracking
-  - Weekly progress trends
+| Area | File |
+| --- | --- |
+| App entry | `src/main.tsx` |
+| App providers | `src/app/App.tsx` |
+| Route definitions | `src/app/routes.tsx` |
+| Protected app shell | `src/app/components/layouts/AppLayout.tsx` |
+| Pages | `src/app/pages` |
+| Reusable UI | `src/app/components/ui` |
+| Auth/session helpers | `src/app/lib/auth.ts` |
+| API client | `src/app/lib/api.ts` |
+| OAuth helpers | `src/app/lib/oauth.ts` |
+| Global styles | `src/styles/index.css` |
+| Theme tokens | `src/styles/theme.css` |
+| Vite launcher workaround | `scripts/run-vite.mjs` |
 
-- `/app/profile` - User Profile
-  - Profile information management
-  - Stats overview
-  - Topic proficiency levels
-  - Achievement badges
-  - Preferred topics
+## Current Backend Integration
 
-- `/app/settings` - Settings
-  - Account settings
-  - Theme selection (light/dark/system)
-  - Notification preferences
-  - Security settings
-  - Session management
-  - Account deletion
+| Flow | Endpoint |
+| --- | --- |
+| Register | `POST /api/v1/auth/register` |
+| Login | `POST /api/v1/auth/login` |
+| Refresh token | `POST /api/v1/auth/refresh-token` |
+| GitHub OAuth | `POST /api/v1/auth/github-oauth-login` |
+| Google OAuth | `POST /api/v1/auth/google-oauth-login` |
+| Verify email | `POST /api/v1/auth/verify-email` |
+| Resend verification | `POST /api/v1/auth/resend-verification-email` |
+| Complete onboarding | `POST /api/v1/me/complete-onboarding` |
 
-## Design System
+## Dashboard Backend API Plan
 
-### Colors
-- **Primary**: Blue (#2563eb) - Main brand color
-- **Secondary**: Purple (#8b5cf6) - Accent color
-- **Success**: Green (#10b981)
-- **Warning**: Orange (#f59e0b)
-- **Error**: Red (#dc2626)
+Start with one aggregate endpoint for the first dashboard render:
 
-### Theme Support
-- Light mode (default)
-- Dark mode
-- System preference detection
-- Persistent theme selection
+```http
+GET /api/v1/dashboard/overview?range=7d
+Authorization: Bearer <access_token>
+```
 
-### Components
-All components from shadcn/ui library:
-- Buttons, Cards, Inputs, Labels
-- Dialogs, Alerts, Tooltips
-- Progress bars, Charts
-- Navigation components
-- Form components
+The response should include:
 
-### Typography
-- Clean, readable font hierarchy
-- Consistent spacing
-- Responsive text sizes
+- Current user summary
+- Quick stats and deltas
+- Performance trend points
+- Topic performance
+- Weak and strong topics
+- Recent activity
+- Recommended next interview setup
 
-### Layout
-- Desktop-first approach
-- Responsive grid system
-- Sidebar navigation (desktop)
-- Mobile-responsive breakpoints
+Use smaller endpoints later for filtering, pagination, and partial refreshes:
 
-## Key Features
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/v1/dashboard/stats?range=7d` | Refresh summary cards |
+| `GET /api/v1/dashboard/performance-trend?range=30d&topic_id=algorithms` | Filter chart data |
+| `GET /api/v1/dashboard/topics?range=30d` | Topic performance |
+| `GET /api/v1/dashboard/recent-activity?limit=10&cursor=<cursor>` | Paginated activity |
+| `GET /api/v1/dashboard/recommendations` | Topic and next-session recommendations |
 
-### Animations
-- Page transitions with Motion
-- Hover effects
-- Loading states
-- Smooth chart animations
-- Micro-interactions
+Detailed dashboard JSON contracts are in `workfile.md`.
 
-### Data Visualization
-- Line/Area charts (performance over time)
-- Bar charts (topic performance, time spent)
-- Radar charts (skill assessment)
-- Pie charts (difficulty breakdown)
-- Progress bars and indicators
+## APIs Needed Beyond Dashboard
 
-### User Experience
-- Smooth navigation
-- Loading skeletons
-- Toast notifications
-- Form validation
-- Responsive design
-- Keyboard shortcuts support
+### Interview Sessions
 
-## Technical Stack
-- **Framework**: React 18 with TypeScript
-- **Routing**: React Router v7
-- **Styling**: Tailwind CSS v4
-- **UI Components**: Radix UI + shadcn/ui
-- **Charts**: Recharts
-- **Icons**: Lucide React
-- **Animations**: Motion (Framer Motion)
-- **Theme**: next-themes
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| `POST` | `/api/v1/interview-sessions` | Start a new interview session |
+| `GET` | `/api/v1/interview-sessions/:sessionId` | Load session state |
+| `POST` | `/api/v1/interview-sessions/:sessionId/answers` | Save or update an answer |
+| `POST` | `/api/v1/interview-sessions/:sessionId/submit` | Finish session and trigger scoring |
+| `GET` | `/api/v1/interview-sessions/:sessionId/results` | Load scored results |
 
-## Mock Data
-The application uses mock data for demonstration. In production, all data would be fetched from the Golang backend API.
+### Analytics
 
-## Future Enhancements
-- Real-time interview feedback
-- Video interview practice
-- Peer interview sessions
-- Interview scheduling
-- Performance benchmarking
-- Learning resources integration
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/v1/analytics/summary` | Overall analytics summary |
+| `GET` | `/api/v1/analytics/performance` | Historical score/time chart data |
+| `GET` | `/api/v1/analytics/difficulty` | Difficulty distribution |
+| `GET` | `/api/v1/analytics/topics` | Topic-level analytics |
+
+### Profile And Settings
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/v1/me` | Current user profile |
+| `PATCH` | `/api/v1/me` | Update user profile |
+| `GET` | `/api/v1/me/preferences` | Load interview preferences |
+| `PATCH` | `/api/v1/me/preferences` | Update interview preferences |
+| `GET` | `/api/v1/me/notifications` | Load notification settings |
+| `PATCH` | `/api/v1/me/notifications` | Update notification settings |
+| `POST` | `/api/v1/auth/password-reset/request` | Request password reset |
+| `POST` | `/api/v1/auth/password-reset/confirm` | Confirm password reset |
+| `DELETE` | `/api/v1/me` | Delete account |
+
+## Build And Tooling
+
+Use the wrapper scripts:
+
+```bash
+npm run dev
+npm run build
+```
+
+Do not bypass `scripts/run-vite.mjs` unless direct Vite execution has been revalidated in this environment.
+
+## Implementation Priorities
+
+1. Replace dashboard mock data with `GET /api/v1/dashboard/overview`.
+2. Add loading, empty, and error states to the dashboard.
+3. Connect recent activity rows to real results pages.
+4. Start interview sessions through `POST /api/v1/interview-sessions`.
+5. Persist answers and submit sessions to the backend.
+6. Replace results mock data with scored backend results.
+7. Connect analytics, profile, and settings to their dedicated APIs.

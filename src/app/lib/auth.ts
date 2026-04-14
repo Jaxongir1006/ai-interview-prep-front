@@ -34,19 +34,44 @@ export function getAccessToken() {
   return localStorage.getItem(ACCESS_TOKEN_KEY);
 }
 
-export function hasValidAccessToken() {
-  const accessToken = getAccessToken();
-  const expiresAt = localStorage.getItem(ACCESS_TOKEN_EXPIRES_AT_KEY);
+export function getRefreshToken() {
+  return localStorage.getItem(REFRESH_TOKEN_KEY);
+}
 
-  if (!accessToken || !expiresAt) {
+function isFutureTimestamp(value: string | null) {
+  if (!value) {
     return false;
   }
 
-  const expiresAtMs = Date.parse(expiresAt);
+  const expiresAtMs = Date.parse(value);
 
   if (Number.isNaN(expiresAtMs)) {
     return false;
   }
 
   return expiresAtMs > Date.now();
+}
+
+export function hasValidAccessToken() {
+  const accessToken = getAccessToken();
+
+  if (!accessToken) {
+    return false;
+  }
+
+  return isFutureTimestamp(localStorage.getItem(ACCESS_TOKEN_EXPIRES_AT_KEY));
+}
+
+export function hasValidRefreshToken() {
+  const refreshToken = getRefreshToken();
+
+  if (!refreshToken) {
+    return false;
+  }
+
+  return isFutureTimestamp(localStorage.getItem(REFRESH_TOKEN_EXPIRES_AT_KEY));
+}
+
+export function hasSession() {
+  return hasValidAccessToken() || hasValidRefreshToken();
 }
