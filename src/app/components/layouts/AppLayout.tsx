@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Outlet, Link, useLocation, useNavigate } from "react-router";
 import {
   LayoutDashboard,
@@ -10,10 +11,42 @@ import {
 } from "lucide-react";
 import { motion } from "motion/react";
 import { clearSession } from "../../lib/auth";
+import { getMe, logoutUser, type CurrentUserResponse } from "../../lib/api";
+
+function getDisplayName(currentUser: CurrentUserResponse | null) {
+  return (
+    currentUser?.profile?.full_name ||
+    currentUser?.user.email ||
+    currentUser?.user.username ||
+    "InterviewAI user"
+  );
+}
+
+function getDisplayEmail(currentUser: CurrentUserResponse | null) {
+  return currentUser?.user.email || currentUser?.user.username || "Signed in";
+}
+
+function getInitials(value: string) {
+  const parts = value.trim().split(/\s+/).filter(Boolean);
+
+  if (parts.length === 0) {
+    return "IA";
+  }
+
+  if (parts.length === 1) {
+    return parts[0].slice(0, 2).toUpperCase();
+  }
+
+  return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+}
 
 export default function AppLayout() {
   const location = useLocation();
   const navigate = useNavigate();
+  const [currentUser, setCurrentUser] = useState<CurrentUserResponse | null>(
+    null,
+  );
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const navItems = [
     { path: "/app", icon: LayoutDashboard, label: "Dashboard" },
@@ -29,10 +62,42 @@ export default function AppLayout() {
     return location.pathname.startsWith(path);
   };
 
-  const handleLogout = () => {
-    clearSession();
-    navigate("/login", { replace: true });
+  useEffect(() => {
+    let isActive = true;
+
+    getMe()
+      .then((result) => {
+        if (isActive) {
+          setCurrentUser(result);
+        }
+      })
+      .catch(() => {
+        if (isActive) {
+          setCurrentUser(null);
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  const handleLogout = async () => {
+    setIsLoggingOut(true);
+
+    try {
+      await logoutUser();
+    } catch {
+      // Local session cleanup still needs to happen when the server session is already gone.
+    } finally {
+      clearSession();
+      navigate("/login", { replace: true });
+    }
   };
+
+  const displayName = getDisplayName(currentUser);
+  const displayEmail = getDisplayEmail(currentUser);
+  const currentStreak = currentUser?.progress_summary?.current_streak ?? 0;
 
   return (
     <div className="flex h-screen bg-background">
@@ -79,22 +144,27 @@ export default function AppLayout() {
         <div className="p-4 border-t border-border">
           <div className="flex items-center gap-3 px-4 py-3 rounded-lg bg-accent/50">
             <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-              <span className="text-white font-semibold">JD</span>
+              <span className="text-white font-semibold">
+                {getInitials(displayName)}
+              </span>
             </div>
             <div className="flex-1 min-w-0">
-              <p className="font-medium truncate">John Developer</p>
+              <p className="font-medium truncate">{displayName}</p>
               <p className="text-xs text-muted-foreground truncate">
-                john@example.com
+                {displayEmail}
               </p>
             </div>
           </div>
           <button
             type="button"
             onClick={handleLogout}
+            disabled={isLoggingOut}
             className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-all mt-2"
           >
             <LogOut className="w-5 h-5" />
-            <span className="font-medium">Logout</span>
+            <span className="font-medium">
+              {isLoggingOut ? "Logging out..." : "Logout"}
+            </span>
           </button>
         </div>
       </motion.aside>
@@ -112,7 +182,7 @@ export default function AppLayout() {
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-accent/50">
               <Trophy className="w-5 h-5 text-yellow-500" />
-              <span className="font-semibold">7 Day Streak</span>
+              <span className="font-semibold">{currentStreak} Day Streak</span>
             </div>
           </div>
         </header>

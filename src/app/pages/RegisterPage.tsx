@@ -1,20 +1,29 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { motion } from "motion/react";
-import { Brain, Mail, Lock, Eye, EyeOff, User } from "lucide-react";
+import { Brain, Mail, Lock, Eye, EyeOff, Loader2, User } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Card } from "../components/ui/card";
 import { Checkbox } from "../components/ui/checkbox";
 import AuthSocialButtons from "../components/AuthSocialButtons";
+import AuthFormError from "../components/AuthFormError";
 import { ApiError, registerUser } from "../lib/api";
+import {
+  getAuthFieldErrors,
+  getAuthRequestErrorMessage,
+  hasAuthFieldErrors,
+  type AuthFieldErrors,
+} from "../lib/auth-form-errors";
 
 export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [errorCode, setErrorCode] = useState("");
+  const [errorTraceId, setErrorTraceId] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<AuthFieldErrors>({});
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -28,6 +37,8 @@ export default function RegisterPage() {
 
     setErrorMessage("");
     setErrorCode("");
+    setErrorTraceId("");
+    setFieldErrors({});
     setIsSubmitting(true);
 
     const email = formData.email.trim().toLowerCase();
@@ -42,9 +53,20 @@ export default function RegisterPage() {
 
       navigate(`/verify-email?email=${encodeURIComponent(result.email)}`);
     } catch (error) {
-      const code = error instanceof ApiError ? error.code : undefined;
+      const apiError = error instanceof ApiError ? error : null;
+      const code = apiError?.code;
+      const nextFieldErrors = getAuthFieldErrors(apiError?.fields);
+
       setErrorCode(code || "");
-      setErrorMessage(getRegisterErrorMessage(code, error));
+      setErrorTraceId(apiError?.traceId || "");
+      setFieldErrors(nextFieldErrors);
+      setErrorMessage(
+        getRegisterErrorMessage(
+          code,
+          error,
+          hasAuthFieldErrors(nextFieldErrors),
+        ),
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -52,8 +74,31 @@ export default function RegisterPage() {
 
   const handleSocialError = (message: string) => {
     setErrorCode("");
+    setErrorTraceId("");
+    setFieldErrors({});
     setErrorMessage(message);
   };
+
+  const updateFormValue = (
+    field: keyof typeof formData,
+    value: string | boolean,
+  ) => {
+    setFormData((current) => ({ ...current, [field]: value }));
+
+    if (field === "name" || field === "email" || field === "password") {
+      setFieldErrors((current) => ({ ...current, [field]: undefined }));
+    }
+  };
+
+  const verificationAction =
+    errorCode === "EMAIL_ALREADY_EXISTS" || errorCode === "EMAIL_CONFLICT"
+      ? {
+          label: "Resend verification email",
+          to: `/verify-email?email=${encodeURIComponent(
+            formData.email.trim().toLowerCase(),
+          )}`,
+        }
+      : undefined;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-purple-50 dark:from-gray-950 dark:to-gray-900 p-6">
@@ -91,14 +136,19 @@ export default function RegisterPage() {
                   type="text"
                   placeholder="John Developer"
                   value={formData.name}
-                  onChange={(e) =>
-                    setFormData({ ...formData, name: e.target.value })
-                  }
+                  onChange={(e) => updateFormValue("name", e.target.value)}
                   className="pl-10"
                   maxLength={255}
+                  aria-invalid={Boolean(fieldErrors.name)}
+                  aria-describedby={fieldErrors.name ? "name-error" : undefined}
                   required
                 />
               </div>
+              {fieldErrors.name ? (
+                <p id="name-error" className="text-sm text-destructive">
+                  {fieldErrors.name}
+                </p>
+              ) : null}
             </div>
 
             {/* Email Field */}
@@ -111,14 +161,19 @@ export default function RegisterPage() {
                   type="email"
                   placeholder="john@example.com"
                   value={formData.email}
-                  onChange={(e) =>
-                    setFormData({ ...formData, email: e.target.value })
-                  }
+                  onChange={(e) => updateFormValue("email", e.target.value)}
                   className="pl-10"
                   maxLength={255}
+                  aria-invalid={Boolean(fieldErrors.email)}
+                  aria-describedby={fieldErrors.email ? "email-error" : undefined}
                   required
                 />
               </div>
+              {fieldErrors.email ? (
+                <p id="email-error" className="text-sm text-destructive">
+                  {fieldErrors.email}
+                </p>
+              ) : null}
             </div>
 
             {/* Password Field */}
@@ -131,12 +186,14 @@ export default function RegisterPage() {
                   type={showPassword ? "text" : "password"}
                   placeholder="••••••••"
                   value={formData.password}
-                  onChange={(e) =>
-                    setFormData({ ...formData, password: e.target.value })
-                  }
+                  onChange={(e) => updateFormValue("password", e.target.value)}
                   className="pl-10 pr-10"
                   minLength={8}
                   maxLength={72}
+                  aria-invalid={Boolean(fieldErrors.password)}
+                  aria-describedby={
+                    fieldErrors.password ? "password-error" : undefined
+                  }
                   required
                 />
                 <button
@@ -154,6 +211,11 @@ export default function RegisterPage() {
               <p className="text-xs text-muted-foreground">
                 Must be at least 8 characters
               </p>
+              {fieldErrors.password ? (
+                <p id="password-error" className="text-sm text-destructive">
+                  {fieldErrors.password}
+                </p>
+              ) : null}
             </div>
 
             {/* Terms Checkbox */}
@@ -162,7 +224,7 @@ export default function RegisterPage() {
                 id="terms"
                 checked={formData.agreeToTerms}
                 onCheckedChange={(checked) =>
-                  setFormData({ ...formData, agreeToTerms: checked as boolean })
+                  updateFormValue("agreeToTerms", checked === true)
                 }
               />
               <label
@@ -181,20 +243,12 @@ export default function RegisterPage() {
             </div>
 
             {errorMessage ? (
-              <div className="space-y-2">
-                <p className="text-sm text-destructive">{errorMessage}</p>
-                {errorCode === "EMAIL_ALREADY_EXISTS" ||
-                errorCode === "EMAIL_CONFLICT" ? (
-                  <Link
-                    to={`/verify-email?email=${encodeURIComponent(
-                      formData.email.trim().toLowerCase(),
-                    )}`}
-                    className="block text-sm text-blue-600 dark:text-blue-400 hover:underline"
-                  >
-                    Resend verification email
-                  </Link>
-                ) : null}
-              </div>
+              <AuthFormError
+                action={verificationAction}
+                message={errorMessage}
+                title="Account creation failed"
+                traceId={errorTraceId}
+              />
             ) : null}
 
             {/* Submit Button */}
@@ -204,7 +258,14 @@ export default function RegisterPage() {
               size="lg"
               disabled={!formData.agreeToTerms || isSubmitting}
             >
-              {isSubmitting ? "Creating Account..." : "Create Account"}
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Creating account
+                </>
+              ) : (
+                "Create Account"
+              )}
             </Button>
           </form>
 
@@ -253,16 +314,25 @@ export default function RegisterPage() {
   );
 }
 
-function getRegisterErrorMessage(code: string | undefined, error: unknown) {
+function getRegisterErrorMessage(
+  code: string | undefined,
+  error: unknown,
+  hasFieldErrors: boolean,
+) {
   switch (code) {
     case "EMAIL_CONFLICT":
     case "EMAIL_ALREADY_EXISTS":
       return "An account already exists for this email. If you have not verified it yet, request a fresh verification email.";
     case "VALIDATION_FAILED":
+      if (hasFieldErrors) {
+        return "Fix the highlighted fields, then try again.";
+      }
+
       return "Check your name, email, and password, then try again.";
     default:
-      return error instanceof Error
-        ? error.message
-        : "Unable to create your account right now.";
+      return getAuthRequestErrorMessage(
+        error,
+        "Unable to create your account right now.",
+      );
   }
 }

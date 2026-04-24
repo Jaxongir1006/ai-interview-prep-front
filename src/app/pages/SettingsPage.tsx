@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "motion/react";
 import {
   User,
@@ -12,6 +12,8 @@ import {
   MessageSquare,
   Lock,
   Trash2,
+  Loader2,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
@@ -28,6 +30,15 @@ import {
 import { Separator } from "../components/ui/separator";
 import { useTheme } from "../components/theme-provider";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "../components/ui/dialog";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -39,9 +50,89 @@ import {
   AlertDialogTrigger,
 } from "../components/ui/alert-dialog";
 import { toast } from "sonner";
+import {
+  ApiError,
+  changeMyPassword,
+  deleteMySession,
+  getMe,
+  getMySessions,
+  type AuthSession,
+  type CurrentUserResponse,
+} from "../lib/api";
+
+function formatDateTime(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Unknown time";
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
+function getDeviceLabel(userAgent: string) {
+  if (!userAgent) {
+    return "Unknown device";
+  }
+
+  if (userAgent.includes("Firefox")) {
+    return "Firefox";
+  }
+
+  if (userAgent.includes("Edg/")) {
+    return "Microsoft Edge";
+  }
+
+  if (userAgent.includes("Chrome")) {
+    return "Chrome";
+  }
+
+  if (userAgent.includes("Safari")) {
+    return "Safari";
+  }
+
+  return userAgent.slice(0, 60);
+}
+
+function getPasswordErrorMessage(error: unknown) {
+  if (error instanceof ApiError) {
+    if (error.code === "INCORRECT_CREDENTIALS") {
+      return "Current password is incorrect.";
+    }
+
+    if (error.code === "VALIDATION_FAILED") {
+      return "Check your password fields, then try again.";
+    }
+
+    return error.message;
+  }
+
+  return error instanceof Error
+    ? error.message
+    : "Unable to change your password right now.";
+}
 
 export default function SettingsPage() {
   const { theme, setTheme } = useTheme();
+  const [currentUser, setCurrentUser] = useState<CurrentUserResponse | null>(
+    null,
+  );
+  const [sessions, setSessions] = useState<AuthSession[]>([]);
+  const [isLoadingSessions, setIsLoadingSessions] = useState(false);
+  const [revokingSessionId, setRevokingSessionId] = useState<number | null>(
+    null,
+  );
+  const [isPasswordDialogOpen, setIsPasswordDialogOpen] = useState(false);
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: "",
+  });
   const [notifications, setNotifications] = useState({
     emailNotifications: true,
     pushNotifications: false,
@@ -59,6 +150,98 @@ export default function SettingsPage() {
     setTheme(newTheme);
     toast.success(`Theme changed to ${newTheme}`);
   };
+
+  const loadSessions = async () => {
+    setIsLoadingSessions(true);
+
+    try {
+      const result = await getMySessions();
+      setSessions(result.content);
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Unable to load active sessions.",
+      );
+    } finally {
+      setIsLoadingSessions(false);
+    }
+  };
+
+  useEffect(() => {
+    let isActive = true;
+
+    getMe()
+      .then((result) => {
+        if (isActive) {
+          setCurrentUser(result);
+        }
+      })
+      .catch(() => {
+        if (isActive) {
+          setCurrentUser(null);
+        }
+      });
+
+    void loadSessions();
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  const handlePasswordChange = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setPasswordError("");
+
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setPasswordError("New passwords do not match.");
+      return;
+    }
+
+    setIsChangingPassword(true);
+
+    try {
+      await changeMyPassword({
+        current_password: passwordForm.currentPassword,
+        new_password: passwordForm.newPassword,
+      });
+
+      setPasswordForm({
+        currentPassword: "",
+        newPassword: "",
+        confirmPassword: "",
+      });
+      setIsPasswordDialogOpen(false);
+      toast.success("Password changed");
+    } catch (error) {
+      setPasswordError(getPasswordErrorMessage(error));
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
+
+  const handleRevokeSession = async (sessionId: number) => {
+    setRevokingSessionId(sessionId);
+
+    try {
+      await deleteMySession({ session_id: sessionId });
+      setSessions((current) =>
+        current.filter((session) => session.id !== sessionId),
+      );
+      toast.success("Session revoked");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Unable to revoke session.",
+      );
+    } finally {
+      setRevokingSessionId(null);
+    }
+  };
+
+  const fullName = currentUser?.profile?.full_name || "";
+  const [firstName = "", ...lastNameParts] = fullName.split(" ");
+  const lastName = lastNameParts.join(" ");
 
   return (
     <div className="p-8 space-y-8">
@@ -96,52 +279,71 @@ export default function SettingsPage() {
             <div className="grid md:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <Label htmlFor="firstName">First Name</Label>
-                <Input id="firstName" defaultValue="John" />
+                <Input id="firstName" value={firstName} readOnly />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="lastName">Last Name</Label>
-                <Input id="lastName" defaultValue="Developer" />
+                <Input id="lastName" value={lastName} readOnly />
               </div>
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="email">Email Address</Label>
-              <Input id="email" type="email" defaultValue="john@example.com" />
+              <Input
+                id="email"
+                type="email"
+                value={currentUser?.user.email || ""}
+                readOnly
+              />
             </div>
 
             <div className="grid md:grid-cols-2 gap-6">
               <div className="space-y-2">
                 <Label htmlFor="targetRole">Target Role</Label>
-                <Select defaultValue="python">
+                <Select
+                  value={currentUser?.profile?.target_role || ""}
+                  disabled
+                >
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue placeholder="Not set" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="python">Python Backend</SelectItem>
-                    <SelectItem value="django">Django Developer</SelectItem>
-                    <SelectItem value="golang">Go Developer</SelectItem>
-                    <SelectItem value="nodejs">Node.js Backend</SelectItem>
+                    {currentUser?.profile?.target_role ? (
+                      <SelectItem value={currentUser.profile.target_role}>
+                        {currentUser.profile.target_role}
+                      </SelectItem>
+                    ) : null}
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="level">Experience Level</Label>
-                <Select defaultValue="mid">
+                <Select
+                  value={currentUser?.profile?.experience_level || ""}
+                  disabled
+                >
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue placeholder="Not set" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="junior">Junior (0-2 years)</SelectItem>
-                    <SelectItem value="mid">Mid-Level (2-5 years)</SelectItem>
-                    <SelectItem value="senior">Senior (5+ years)</SelectItem>
+                    {currentUser?.profile?.experience_level ? (
+                      <SelectItem value={currentUser.profile.experience_level}>
+                        {currentUser.profile.experience_level}
+                      </SelectItem>
+                    ) : null}
                   </SelectContent>
                 </Select>
               </div>
             </div>
 
             <div className="flex justify-end">
-              <Button onClick={() => toast.success("Account settings saved")}>
-                Save Changes
+              <Button
+                variant="outline"
+                onClick={() =>
+                  toast.info("Profile editing will be connected separately.")
+                }
+              >
+                Profile Editing Pending
               </Button>
             </div>
           </div>
@@ -367,20 +569,94 @@ export default function SettingsPage() {
 
           <div className="space-y-6">
             <div>
-              <Button variant="outline" className="w-full md:w-auto">
-                <Lock className="w-4 h-4 mr-2" />
-                Change Password
-              </Button>
-            </div>
+              <Dialog
+                open={isPasswordDialogOpen}
+                onOpenChange={setIsPasswordDialogOpen}
+              >
+                <DialogTrigger asChild>
+                  <Button variant="outline" className="w-full md:w-auto">
+                    <Lock className="w-4 h-4 mr-2" />
+                    Change Password
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Change password</DialogTitle>
+                    <DialogDescription>
+                      Enter your current password and choose a new one.
+                    </DialogDescription>
+                  </DialogHeader>
 
-            <Separator />
+                  <form onSubmit={handlePasswordChange} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="current-password">Current password</Label>
+                      <Input
+                        id="current-password"
+                        type="password"
+                        value={passwordForm.currentPassword}
+                        onChange={(event) =>
+                          setPasswordForm((current) => ({
+                            ...current,
+                            currentPassword: event.target.value,
+                          }))
+                        }
+                        required
+                      />
+                    </div>
 
-            <div>
-              <h4 className="font-medium mb-3">Two-Factor Authentication</h4>
-              <p className="text-sm text-muted-foreground mb-4">
-                Add an extra layer of security to your account
-              </p>
-              <Button variant="outline">Enable 2FA</Button>
+                    <div className="space-y-2">
+                      <Label htmlFor="new-password">New password</Label>
+                      <Input
+                        id="new-password"
+                        type="password"
+                        value={passwordForm.newPassword}
+                        onChange={(event) =>
+                          setPasswordForm((current) => ({
+                            ...current,
+                            newPassword: event.target.value,
+                          }))
+                        }
+                        minLength={8}
+                        required
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="confirm-new-password">
+                        Confirm new password
+                      </Label>
+                      <Input
+                        id="confirm-new-password"
+                        type="password"
+                        value={passwordForm.confirmPassword}
+                        onChange={(event) =>
+                          setPasswordForm((current) => ({
+                            ...current,
+                            confirmPassword: event.target.value,
+                          }))
+                        }
+                        minLength={8}
+                        required
+                      />
+                    </div>
+
+                    {passwordError ? (
+                      <p className="text-sm text-destructive">
+                        {passwordError}
+                      </p>
+                    ) : null}
+
+                    <DialogFooter>
+                      <Button type="submit" disabled={isChangingPassword}>
+                        {isChangingPassword ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : null}
+                        Save Password
+                      </Button>
+                    </DialogFooter>
+                  </form>
+                </DialogContent>
+              </Dialog>
             </div>
 
             <Separator />
@@ -391,17 +667,62 @@ export default function SettingsPage() {
                 Manage devices where you're currently logged in
               </p>
               <div className="space-y-3">
-                <div className="flex items-center justify-between p-4 rounded-lg border border-border">
-                  <div>
-                    <p className="font-medium">MacBook Pro - Chrome</p>
-                    <p className="text-sm text-muted-foreground">
-                      San Francisco, CA • Active now
-                    </p>
-                  </div>
-                  <Button variant="ghost" size="sm">
-                    Revoke
+                <div className="flex justify-end">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={loadSessions}
+                    disabled={isLoadingSessions}
+                  >
+                    {isLoadingSessions ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-4 h-4" />
+                    )}
+                    Refresh
                   </Button>
                 </div>
+
+                {isLoadingSessions && sessions.length === 0 ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Loading active sessions
+                  </div>
+                ) : null}
+
+                {sessions.map((session) => (
+                  <div
+                    key={session.id}
+                    className="flex items-center justify-between gap-4 p-4 rounded-lg border border-border"
+                  >
+                    <div>
+                      <p className="font-medium">
+                        {getDeviceLabel(session.user_agent)}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {session.ip_address || "Unknown IP"} • Last used{" "}
+                        {formatDateTime(session.last_used_at)}
+                      </p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleRevokeSession(session.id)}
+                      disabled={revokingSessionId === session.id}
+                    >
+                      {revokingSessionId === session.id ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : null}
+                      Revoke
+                    </Button>
+                  </div>
+                ))}
+
+                {!isLoadingSessions && sessions.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No active sessions found.
+                  </p>
+                ) : null}
               </div>
             </div>
           </div>

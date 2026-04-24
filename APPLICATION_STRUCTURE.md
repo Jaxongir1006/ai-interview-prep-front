@@ -18,7 +18,7 @@ The app currently has a polished UI shell, real authentication/onboarding API in
 | `/login` | Login page | Email/password and social sign-in | Integrated |
 | `/register` | Register page | Account creation | Integrated |
 | `/verify-email` | Verify email page | Email verification and resend flow | Integrated |
-| `/password-reset` | Password reset page | Password recovery UI | UI present, backend TBD |
+| `/password-reset` | Password reset page | Password recovery request and confirm flow | Integrated |
 | `/onboarding` | Onboarding flow | Target role, level, and topic preferences | Integrated |
 | `/oauth/:provider/callback` | OAuth callback | GitHub/Google login callback | Integrated |
 
@@ -58,11 +58,19 @@ All authenticated routes live under `/app` and render inside the shared sidebar/
 | --- | --- |
 | Register | `POST /api/v1/auth/register` |
 | Login | `POST /api/v1/auth/login` |
+| Logout | `POST /api/v1/auth/logout` |
 | Refresh token | `POST /api/v1/auth/refresh-token` |
+| Current user | `GET /api/v1/auth/get-me` |
 | GitHub OAuth | `POST /api/v1/auth/github-oauth-login` |
 | Google OAuth | `POST /api/v1/auth/google-oauth-login` |
 | Verify email | `POST /api/v1/auth/verify-email` |
 | Resend verification | `POST /api/v1/auth/resend-verification-email` |
+| Request password reset | `POST /api/v1/auth/request-password-reset` |
+| Confirm password reset | `POST /api/v1/auth/confirm-password-reset` |
+| Change password | `POST /api/v1/auth/change-my-password` |
+| My sessions | `GET /api/v1/auth/get-my-sessions` |
+| Revoke my session | `POST /api/v1/auth/delete-my-session` |
+| Onboarding options | `GET /api/v1/interview/get-onboarding-options` |
 | Complete onboarding | `POST /api/v1/me/complete-onboarding` |
 
 ## Dashboard Backend API Plan
@@ -127,8 +135,8 @@ Detailed dashboard JSON contracts are in `workfile.md`.
 | `PATCH` | `/api/v1/me/preferences` | Update interview preferences |
 | `GET` | `/api/v1/me/notifications` | Load notification settings |
 | `PATCH` | `/api/v1/me/notifications` | Update notification settings |
-| `POST` | `/api/v1/auth/password-reset/request` | Request password reset |
-| `POST` | `/api/v1/auth/password-reset/confirm` | Confirm password reset |
+| `POST` | `/api/v1/auth/request-password-reset` | Request password reset |
+| `POST` | `/api/v1/auth/confirm-password-reset` | Confirm password reset |
 | `DELETE` | `/api/v1/me` | Delete account |
 
 ## Build And Tooling

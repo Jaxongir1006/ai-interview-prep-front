@@ -1,13 +1,20 @@
 import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { motion } from "motion/react";
-import { Brain, Mail, Lock, Eye, EyeOff } from "lucide-react";
+import { Brain, Mail, Lock, Eye, EyeOff, Loader2 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Card } from "../components/ui/card";
 import AuthSocialButtons from "../components/AuthSocialButtons";
+import AuthFormError from "../components/AuthFormError";
 import { ApiError, completeOnboarding, loginUser } from "../lib/api";
+import {
+  getAuthFieldErrors,
+  getAuthRequestErrorMessage,
+  hasAuthFieldErrors,
+  type AuthFieldErrors,
+} from "../lib/auth-form-errors";
 import {
   clearPendingOnboarding,
   getPendingOnboarding,
@@ -20,6 +27,8 @@ export default function LoginPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [errorCode, setErrorCode] = useState("");
+  const [errorTraceId, setErrorTraceId] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<AuthFieldErrors>({});
   const navigate = useNavigate();
   const location = useLocation();
   const fromPath =
@@ -33,6 +42,8 @@ export default function LoginPage() {
 
     setErrorMessage("");
     setErrorCode("");
+    setErrorTraceId("");
+    setFieldErrors({});
     setIsSubmitting(true);
 
     const normalizedEmail = email.trim().toLowerCase();
@@ -54,9 +65,16 @@ export default function LoginPage() {
 
       navigate(fromPath, { replace: true });
     } catch (error) {
-      const code = error instanceof ApiError ? error.code : undefined;
+      const apiError = error instanceof ApiError ? error : null;
+      const code = apiError?.code;
+      const nextFieldErrors = getAuthFieldErrors(apiError?.fields);
+
       setErrorCode(code || "");
-      setErrorMessage(getLoginErrorMessage(code, error));
+      setErrorTraceId(apiError?.traceId || "");
+      setFieldErrors(nextFieldErrors);
+      setErrorMessage(
+        getLoginErrorMessage(code, error, hasAuthFieldErrors(nextFieldErrors)),
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -64,8 +82,30 @@ export default function LoginPage() {
 
   const handleSocialError = (message: string) => {
     setErrorCode("");
+    setErrorTraceId("");
+    setFieldErrors({});
     setErrorMessage(message);
   };
+
+  const updateEmail = (value: string) => {
+    setEmail(value);
+    setFieldErrors((current) => ({ ...current, email: undefined }));
+  };
+
+  const updatePassword = (value: string) => {
+    setPassword(value);
+    setFieldErrors((current) => ({ ...current, password: undefined }));
+  };
+
+  const verificationAction =
+    errorCode === "EMAIL_NOT_VERIFIED"
+      ? {
+          label: "Resend verification email",
+          to: `/verify-email?email=${encodeURIComponent(
+            email.trim().toLowerCase(),
+          )}`,
+        }
+      : undefined;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-purple-50 dark:from-gray-950 dark:to-gray-900 p-6">
@@ -109,12 +149,19 @@ export default function LoginPage() {
                   type="email"
                   placeholder="john@example.com"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => updateEmail(e.target.value)}
                   className="pl-10"
                   maxLength={255}
+                  aria-invalid={Boolean(fieldErrors.email)}
+                  aria-describedby={fieldErrors.email ? "email-error" : undefined}
                   required
                 />
               </div>
+              {fieldErrors.email ? (
+                <p id="email-error" className="text-sm text-destructive">
+                  {fieldErrors.email}
+                </p>
+              ) : null}
             </div>
 
             {/* Password Field */}
@@ -135,10 +182,14 @@ export default function LoginPage() {
                   type={showPassword ? "text" : "password"}
                   placeholder="••••••••"
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => updatePassword(e.target.value)}
                   className="pl-10 pr-10"
                   minLength={8}
                   maxLength={72}
+                  aria-invalid={Boolean(fieldErrors.password)}
+                  aria-describedby={
+                    fieldErrors.password ? "password-error" : undefined
+                  }
                   required
                 />
                 <button
@@ -153,22 +204,20 @@ export default function LoginPage() {
                   )}
                 </button>
               </div>
+              {fieldErrors.password ? (
+                <p id="password-error" className="text-sm text-destructive">
+                  {fieldErrors.password}
+                </p>
+              ) : null}
             </div>
 
             {errorMessage ? (
-              <div className="space-y-2">
-                <p className="text-sm text-destructive">{errorMessage}</p>
-                {errorCode === "EMAIL_NOT_VERIFIED" ? (
-                  <Link
-                    to={`/verify-email?email=${encodeURIComponent(
-                      email.trim().toLowerCase(),
-                    )}`}
-                    className="block text-sm text-blue-600 dark:text-blue-400 hover:underline"
-                  >
-                    Resend verification email
-                  </Link>
-                ) : null}
-              </div>
+              <AuthFormError
+                action={verificationAction}
+                message={errorMessage}
+                title="Sign-in failed"
+                traceId={errorTraceId}
+              />
             ) : null}
 
             {/* Submit Button */}
@@ -178,7 +227,14 @@ export default function LoginPage() {
               size="lg"
               disabled={isSubmitting}
             >
-              {isSubmitting ? "Signing In..." : "Sign In"}
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Signing in
+                </>
+              ) : (
+                "Sign In"
+              )}
             </Button>
           </form>
 
@@ -227,7 +283,11 @@ export default function LoginPage() {
   );
 }
 
-function getLoginErrorMessage(code: string | undefined, error: unknown) {
+function getLoginErrorMessage(
+  code: string | undefined,
+  error: unknown,
+  hasFieldErrors: boolean,
+) {
   switch (code) {
     case "INCORRECT_CREDENTIALS":
     case "INVALID_CREDENTIALS":
@@ -236,8 +296,12 @@ function getLoginErrorMessage(code: string | undefined, error: unknown) {
     case "EMAIL_NOT_VERIFIED":
       return "Verify your email before signing in. You can request a fresh verification link.";
     case "VALIDATION_FAILED":
+      if (hasFieldErrors) {
+        return "Fix the highlighted fields, then try again.";
+      }
+
       return "Check your email and password, then try again.";
     default:
-      return error instanceof Error ? error.message : "Unable to sign in right now.";
+      return getAuthRequestErrorMessage(error, "Unable to sign in right now.");
   }
 }

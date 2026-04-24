@@ -102,9 +102,9 @@ export type VerifyEmailResponse = {
 } & LoginResponse;
 
 export type CompleteOnboardingRequest = {
-  target_role: "python" | "golang" | "javascript";
-  experience_level: "junior" | "mid" | "senior";
-  preferred_topics: Array<"Algorithms" | "System Design" | "Database Design">;
+  target_role: string;
+  experience_level: string;
+  preferred_topics: string[];
 };
 
 export type CompleteOnboardingResponse = {
@@ -122,6 +122,221 @@ export type CompleteOnboardingResponse = {
 
 export type ResendVerificationEmailRequest = {
   email: string;
+};
+
+export type RequestPasswordResetRequest = {
+  email: string;
+};
+
+export type ConfirmPasswordResetRequest = {
+  token: string;
+  password: string;
+};
+
+export type PasswordResetResponse = {
+  message: string;
+};
+
+export type CurrentUserResponse = {
+  user: {
+    id: string;
+    username: string | null;
+    email: string | null;
+    phone_number: string | null;
+    is_verified: boolean;
+    is_active: boolean;
+    last_login_at: string | null;
+    last_active_at: string | null;
+    created_at: string;
+    updated_at: string;
+    oauth_providers: string[];
+  };
+  profile: {
+    id: number;
+    user_id: string;
+    full_name: string | null;
+    bio: string | null;
+    location: string | null;
+    target_role: string;
+    experience_level: string;
+    interview_goal_per_week: number;
+    preferred_topics: string[];
+    onboarding_completed: boolean;
+    onboarding_completed_at: string | null;
+    created_at: string;
+    updated_at: string;
+  } | null;
+  progress_summary: {
+    current_streak: number;
+    longest_streak: number;
+    total_interviews_taken: number;
+    total_time_spent_seconds: number;
+    average_score: number;
+    last_interview_at: string | null;
+  } | null;
+  avatar: {
+    file_id: string;
+    original_filename: string;
+    mime_type: string;
+    size_bytes: number;
+    download_url: string;
+  } | null;
+};
+
+export type ChangeMyPasswordRequest = {
+  current_password: string;
+  new_password: string;
+};
+
+export type AuthSession = {
+  id: number;
+  user_id: string;
+  access_token_expires_at: string;
+  refresh_token_expires_at: string;
+  ip_address: string;
+  user_agent: string;
+  last_used_at: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type GetMySessionsResponse = {
+  content: AuthSession[];
+};
+
+export type DeleteMySessionRequest = {
+  session_id: number;
+};
+
+export type OnboardingCatalogOption = {
+  key: string;
+  name: string;
+  description: string | null;
+  display_order: number;
+};
+
+export type OnboardingTopicOption = OnboardingCatalogOption & {
+  category: string | null;
+  target_role_keys: string[];
+};
+
+export type OnboardingOptionsResponse = {
+  target_roles: OnboardingCatalogOption[];
+  experience_levels: OnboardingCatalogOption[];
+  topics: OnboardingTopicOption[];
+};
+
+export type DashboardRange = "7d" | "30d" | "90d" | "all";
+
+export type DashboardTopicRef = {
+  id: string;
+  name: string;
+};
+
+export type DashboardOverviewResponse = {
+  user: {
+    id: string;
+    full_name: string | null;
+    email: string | null;
+    avatar_url: string | null;
+    target_role: DashboardTopicRef | null;
+    experience_level: DashboardTopicRef | null;
+  };
+  stats: {
+    total_interviews: {
+      value: number;
+      delta_percent: number;
+      delta_direction: "up" | "down" | "flat" | "new";
+    };
+    average_score: {
+      value: number | null;
+      delta_percent: number;
+      delta_direction: "up" | "down" | "flat" | "new";
+    };
+    current_streak_days: {
+      value: number;
+      is_record: boolean;
+    };
+    total_practice_seconds: {
+      value: number;
+      delta_percent: number;
+      delta_direction: "up" | "down" | "flat" | "new";
+    };
+  };
+  performance: {
+    range: DashboardRange;
+    summary: {
+      average_score: number | null;
+      score_delta_percent: number;
+      interviews_completed: number;
+      practice_seconds: number;
+    };
+    points: Array<{
+      date: string;
+      label: string;
+      average_score: number | null;
+      interviews_completed: number;
+      practice_seconds: number;
+    }>;
+  };
+  topics: {
+    items: Array<{
+      id: string;
+      name: string;
+      score: number | null;
+      questions_answered: number;
+      correctness_rate: number | null;
+      average_time_seconds: number | null;
+      trend: "up" | "down" | "flat" | "new";
+      level: "strong" | "stable" | "needs_practice";
+    }>;
+    weak: Array<{
+      id: string;
+      name: string;
+      score: number | null;
+      questions_answered: number;
+      reason: string;
+      recommended_action: string;
+    }>;
+    strong: Array<{
+      id: string;
+      name: string;
+      score: number | null;
+      questions_answered: number;
+      reason: string;
+    }>;
+  };
+  recent_activity: {
+    items: Array<{
+      session_id: string;
+      title: string;
+      status: "in_progress" | "completed" | "abandoned" | "scoring";
+      score: number | null;
+      started_at: string;
+      completed_at: string | null;
+      duration_seconds: number;
+      question_count: number;
+      answered_count: number;
+      topics: DashboardTopicRef[];
+    }>;
+    next_cursor: string | null;
+  };
+  recommendations: {
+    recommended_topics: Array<{
+      id: string;
+      name: string;
+      priority: "low" | "medium" | "high";
+      reason: string;
+    }>;
+    next_interview: {
+      target_role: DashboardTopicRef | null;
+      experience_level: DashboardTopicRef | null;
+      topics: DashboardTopicRef[];
+      difficulty: "easy" | "medium" | "hard" | "mixed";
+      question_count: number;
+      estimated_duration_seconds: number;
+    };
+  };
 };
 
 type RefreshTokenRequest = {
@@ -422,12 +637,91 @@ export async function resendVerificationEmail(
   );
 }
 
+export async function requestPasswordReset(
+  payload: RequestPasswordResetRequest,
+) {
+  return request<PasswordResetResponse>(
+    "/api/v1/auth/request-password-reset",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    { suppressGlobalError: true },
+  );
+}
+
+export async function confirmPasswordReset(
+  payload: ConfirmPasswordResetRequest,
+) {
+  return request<PasswordResetResponse>(
+    "/api/v1/auth/confirm-password-reset",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    { suppressGlobalError: true },
+  );
+}
+
+export async function logoutUser() {
+  await authenticatedRequest<unknown>("/api/v1/auth/logout", {
+    method: "POST",
+  });
+}
+
+export async function getMe() {
+  return authenticatedRequest<CurrentUserResponse>("/api/v1/auth/get-me", {
+    method: "GET",
+  });
+}
+
+export async function changeMyPassword(payload: ChangeMyPasswordRequest) {
+  await authenticatedRequest<unknown>("/api/v1/auth/change-my-password", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getMySessions() {
+  return authenticatedRequest<GetMySessionsResponse>(
+    "/api/v1/auth/get-my-sessions",
+    {
+      method: "GET",
+    },
+  );
+}
+
+export async function deleteMySession(payload: DeleteMySessionRequest) {
+  await authenticatedRequest<unknown>("/api/v1/auth/delete-my-session", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getOnboardingOptions() {
+  return authenticatedRequest<OnboardingOptionsResponse>(
+    "/api/v1/interview/get-onboarding-options",
+    {
+      method: "GET",
+    },
+  );
+}
+
 export async function completeOnboarding(payload: CompleteOnboardingRequest) {
   return authenticatedRequest<CompleteOnboardingResponse>(
     "/api/v1/me/complete-onboarding",
     {
       method: "POST",
       body: JSON.stringify(payload),
+    },
+  );
+}
+
+export async function getDashboardOverview(range: DashboardRange = "7d") {
+  return authenticatedRequest<DashboardOverviewResponse>(
+    `/api/v1/dashboard/overview?range=${encodeURIComponent(range)}`,
+    {
+      method: "GET",
     },
   );
 }

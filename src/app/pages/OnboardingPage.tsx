@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -8,79 +8,120 @@ import {
   CheckCircle,
   ArrowRight,
   ArrowLeft,
+  Loader2,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { Progress } from "../components/ui/progress";
 import { hasSession } from "../lib/auth";
-import { ApiError, completeOnboarding } from "../lib/api";
-import type { CompleteOnboardingRequest } from "../lib/api";
+import { ApiError, completeOnboarding, getOnboardingOptions } from "../lib/api";
+import type {
+  CompleteOnboardingRequest,
+  OnboardingCatalogOption,
+  OnboardingOptionsResponse,
+  OnboardingTopicOption,
+} from "../lib/api";
 import {
   clearPendingOnboarding,
   getPendingOnboarding,
   savePendingOnboarding,
 } from "../lib/onboarding";
 
-type TargetRole = CompleteOnboardingRequest["target_role"];
-type ExperienceLevel = CompleteOnboardingRequest["experience_level"];
-type PreferredTopic = CompleteOnboardingRequest["preferred_topics"][number];
+function isTopicAvailableForRole(
+  topic: OnboardingTopicOption,
+  selectedRole: string,
+) {
+  return (
+    topic.target_role_keys.length === 0 ||
+    topic.target_role_keys.includes(selectedRole)
+  );
+}
+
+function getCatalogDescription(option: OnboardingCatalogOption) {
+  return option.description || "Available for your interview preparation.";
+}
 
 export default function OnboardingPage() {
   const pendingOnboarding = getPendingOnboarding();
   const [step, setStep] = useState(1);
-  const [selectedRole, setSelectedRole] = useState<TargetRole | "">(
+  const [selectedRole, setSelectedRole] = useState(
     pendingOnboarding?.target_role || "",
   );
-  const [selectedLevel, setSelectedLevel] = useState<ExperienceLevel | "">(
+  const [selectedLevel, setSelectedLevel] = useState(
     pendingOnboarding?.experience_level || "",
   );
-  const [selectedTopics, setSelectedTopics] = useState<PreferredTopic[]>(
+  const [selectedTopics, setSelectedTopics] = useState<string[]>(
     pendingOnboarding?.preferred_topics || [],
   );
+  const [options, setOptions] = useState<OnboardingOptionsResponse | null>(null);
+  const [isLoadingOptions, setIsLoadingOptions] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const navigate = useNavigate();
 
-  const roles: Array<{ id: TargetRole; label: string; icon: string }> = [
-    { id: "python", label: "Python Backend", icon: "🐍" },
-    { id: "golang", label: "Go Developer", icon: "🔷" },
-    { id: "javascript", label: "JavaScript Backend", icon: "🟢" },
-  ];
-
-  const levels: Array<{
-    id: ExperienceLevel;
-    label: string;
-    description: string;
-    icon: string;
-  }> = [
-    {
-      id: "junior",
-      label: "Junior",
-      description: "0-2 years of experience",
-      icon: "🌱",
-    },
-    {
-      id: "mid",
-      label: "Mid-Level",
-      description: "2-5 years of experience",
-      icon: "🌿",
-    },
-    {
-      id: "senior",
-      label: "Senior",
-      description: "5+ years of experience",
-      icon: "🌳",
-    },
-  ];
-
-  const topics: PreferredTopic[] = [
-    "Algorithms",
-    "System Design",
-    "Database Design",
-  ];
-
   const totalSteps = 3;
   const progress = (step / totalSteps) * 100;
+  const roles = options?.target_roles || [];
+  const levels = options?.experience_levels || [];
+  const topics = useMemo(() => {
+    if (!options || !selectedRole) {
+      return [];
+    }
+
+    return options.topics.filter((topic) =>
+      isTopicAvailableForRole(topic, selectedRole),
+    );
+  }, [options, selectedRole]);
+
+  const loadOptions = async () => {
+    if (!hasSession()) {
+      navigate("/login", {
+        replace: true,
+        state: {
+          from: { pathname: "/onboarding" },
+          message: "Sign in to personalize your interview preparation.",
+        },
+      });
+      return;
+    }
+
+    setIsLoadingOptions(true);
+    setErrorMessage("");
+
+    try {
+      const result = await getOnboardingOptions();
+      setOptions(result);
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to load onboarding options.",
+      );
+    } finally {
+      setIsLoadingOptions(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadOptions();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedRole || !options) {
+      return;
+    }
+
+    setSelectedTopics((currentTopics) =>
+      currentTopics.filter((topicKey) =>
+        options.topics.some(
+          (topic) =>
+            topic.key === topicKey &&
+            isTopicAvailableForRole(topic, selectedRole),
+        ),
+      ),
+    );
+  }, [options, selectedRole]);
 
   const getPreferences = (): CompleteOnboardingRequest | null => {
     if (!selectedRole || !selectedLevel || selectedTopics.length === 0) {
@@ -151,7 +192,7 @@ export default function OnboardingPage() {
     }
   };
 
-  const toggleTopic = (topic: PreferredTopic) => {
+  const toggleTopic = (topic: string) => {
     if (selectedTopics.includes(topic)) {
       setSelectedTopics(selectedTopics.filter((t) => t !== topic));
     } else {
@@ -160,6 +201,7 @@ export default function OnboardingPage() {
   };
 
   const canProceed = () => {
+    if (isLoadingOptions || !options) return false;
     if (step === 1) return selectedRole !== "";
     if (step === 2) return selectedLevel !== "";
     if (step === 3) return selectedTopics.length > 0;
@@ -199,6 +241,29 @@ export default function OnboardingPage() {
 
         {/* Steps */}
         <Card className="p-8 mb-6 min-h-[500px] flex flex-col">
+          {isLoadingOptions ? (
+            <div className="flex flex-1 items-center justify-center">
+              <div className="flex items-center gap-3 text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                Loading onboarding options
+              </div>
+            </div>
+          ) : errorMessage && !options ? (
+            <div className="flex flex-1 items-center justify-center text-center">
+              <div className="max-w-md space-y-4">
+                <div>
+                  <h2 className="text-2xl font-bold">
+                    Onboarding options unavailable
+                  </h2>
+                  <p className="text-muted-foreground">{errorMessage}</p>
+                </div>
+                <Button onClick={loadOptions}>
+                  <RefreshCw className="h-4 w-4" />
+                  Retry
+                </Button>
+              </div>
+            </div>
+          ) : (
           <AnimatePresence mode="wait">
             {step === 1 && (
               <motion.div
@@ -223,18 +288,23 @@ export default function OnboardingPage() {
                 <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {roles.map((role) => (
                     <motion.button
-                      key={role.id}
+                      key={role.key}
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
-                      onClick={() => setSelectedRole(role.id)}
+                      onClick={() => {
+                        setSelectedRole(role.key);
+                        setSelectedTopics([]);
+                      }}
                       className={`p-6 rounded-lg border-2 transition-all text-left ${
-                        selectedRole === role.id
+                        selectedRole === role.key
                           ? "border-blue-500 bg-blue-500/10"
                           : "border-border hover:border-blue-500/50"
                       }`}
                     >
-                      <div className="text-4xl mb-3">{role.icon}</div>
-                      <h3 className="font-semibold text-lg">{role.label}</h3>
+                      <h3 className="font-semibold text-lg">{role.name}</h3>
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        {getCatalogDescription(role)}
+                      </p>
                     </motion.button>
                   ))}
                 </div>
@@ -264,26 +334,25 @@ export default function OnboardingPage() {
                 <div className="space-y-4 max-w-2xl">
                   {levels.map((level) => (
                     <motion.button
-                      key={level.id}
+                      key={level.key}
                       whileHover={{ scale: 1.01 }}
                       whileTap={{ scale: 0.99 }}
-                      onClick={() => setSelectedLevel(level.id)}
+                      onClick={() => setSelectedLevel(level.key)}
                       className={`w-full p-6 rounded-lg border-2 transition-all text-left flex items-center gap-4 ${
-                        selectedLevel === level.id
+                        selectedLevel === level.key
                           ? "border-purple-500 bg-purple-500/10"
                           : "border-border hover:border-purple-500/50"
                       }`}
                     >
-                      <div className="text-5xl">{level.icon}</div>
                       <div className="flex-1">
                         <h3 className="font-semibold text-xl mb-1">
-                          {level.label}
+                          {level.name}
                         </h3>
                         <p className="text-muted-foreground">
-                          {level.description}
+                          {getCatalogDescription(level)}
                         </p>
                       </div>
-                      {selectedLevel === level.id && (
+                      {selectedLevel === level.key && (
                         <CheckCircle className="w-6 h-6 text-purple-600 dark:text-purple-400" />
                       )}
                     </motion.button>
@@ -314,20 +383,25 @@ export default function OnboardingPage() {
 
                 <div className="grid md:grid-cols-3 lg:grid-cols-4 gap-3">
                   {topics.map((topic) => {
-                    const isSelected = selectedTopics.includes(topic);
+                    const isSelected = selectedTopics.includes(topic.key);
                     return (
                       <motion.button
-                        key={topic}
+                        key={topic.key}
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
-                        onClick={() => toggleTopic(topic)}
-                        className={`p-4 rounded-lg border-2 transition-all ${
+                        onClick={() => toggleTopic(topic.key)}
+                        className={`p-4 rounded-lg border-2 transition-all text-left ${
                           isSelected
                             ? "border-green-500 bg-green-500/10"
                             : "border-border hover:border-green-500/50"
                         }`}
                       >
-                        <span className="font-medium text-sm">{topic}</span>
+                        <span className="font-medium text-sm">{topic.name}</span>
+                        {topic.description ? (
+                          <p className="mt-2 text-xs text-muted-foreground">
+                            {topic.description}
+                          </p>
+                        ) : null}
                         {isSelected && (
                           <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400 ml-auto mt-2" />
                         )}
@@ -348,6 +422,7 @@ export default function OnboardingPage() {
               </motion.div>
             )}
           </AnimatePresence>
+          )}
         </Card>
 
         {/* Navigation Buttons */}
